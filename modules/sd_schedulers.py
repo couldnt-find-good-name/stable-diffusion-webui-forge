@@ -239,6 +239,5 @@ schedulers = [
     Scheduler('vp', 'Variance Preserving', vp, need_inner_model=True),
     Scheduler('ddim_cfgpp', 'CFG++', ddim_cfgpp, need_inner_model=True),
 ]
-]
 
 schedulers_map = {**{x.name: x for x in schedulers}, **{x.label: x for x in schedulers}}
