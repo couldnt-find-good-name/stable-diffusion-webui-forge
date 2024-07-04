@@ -68,16 +68,13 @@ class CFGDenoiser(torch.nn.Module):
     def inner_model(self):
         raise NotImplementedError()
 
-    def combine_denoised(self, x_out, conds_list, uncond, cond_scale):
+    def combine_denoised(self, x_out, conds_list, uncond, cond_scale, timestep, x_in, cond):
         denoised_uncond = x_out[-uncond.shape[0]:]
         denoised = torch.clone(denoised_uncond)
 
         for i, conds in enumerate(conds_list):
             for cond_index, weight in conds:
-                if 'CFG++' in self.sampler.config.name:
-                    denoised[i] += (x_out[cond_index] - self.last_noise_uncond[i]) * (weight * cond_scale/12.5)
-                else:
-                    denoised[i] += (x_out[cond_index] - denoised_uncond[i]) * (weight * cond_scale)
+                denoised[i] += (x_out[cond_index] - denoised_uncond[i]) * (weight * cond_scale)
 
         return denoised
 

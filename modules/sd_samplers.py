@@ -1,12 +1,13 @@
 from __future__ import annotations
 import functools
 import logging
+
 from modules import sd_samplers_kdiffusion, sd_samplers_timesteps, sd_samplers_lcm, shared, sd_samplers_common, sd_schedulers
 
 # imports for functions that previously were here and are used by other modules
-from modules_forge import forge_alter_samplers
 samples_to_image_grid = sd_samplers_common.samples_to_image_grid
 sample_to_image = sd_samplers_common.sample_to_image
+from modules_forge import forge_alter_samplers
 
 all_samplers = [
     *sd_samplers_kdiffusion.samplers_data_k_diffusion,
@@ -61,6 +62,7 @@ def set_samplers():
 
 def visible_sampler_names():
     return [x.name for x in samplers if x.name not in samplers_hidden]
+
 
 def visible_samplers():
     return [x for x in samplers if x.name not in samplers_hidden]
