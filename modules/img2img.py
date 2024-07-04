@@ -216,7 +216,7 @@ def img2img_function(id_task: str, mode: int, prompt: str, negative_prompt: str,
     p.scripts = modules.scripts.scripts_img2img
     p.script_args = args
 
-    p.user = request.username
+    # p.user = request.username
 
     if shared.opts.enable_console_prompts:
         print(f"\nimg2img: {prompt}", file=shared.progress_print_out)

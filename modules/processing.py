@@ -750,7 +750,8 @@ def process_images(p: StableDiffusionProcessing) -> Processed:
 
             if k == 'sd_vae':
                 sd_vae.reload_vae_weights()
-                
+
+        # backwards compatibility, fix sampler and scheduler if invalid
         sd_samplers.fix_p_invalid_sampler_and_scheduler(p)
 
         res = process_images_inner(p)
