@@ -1,3 +1,5 @@
+# Note: Img2img is broken for now with new schedulers, will look into it to fix.
+
 # Stable Diffusion WebUI Forge
 
 Stable Diffusion WebUI Forge is a platform on top of [Stable Diffusion WebUI](https://github.com/AUTOMATIC1111/stable-diffusion-webui) (based on [Gradio](https://www.gradio.app/)) to make development easier, optimize resource management, speed up inference, and study experimental features.
