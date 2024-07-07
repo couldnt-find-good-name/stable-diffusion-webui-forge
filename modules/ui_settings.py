@@ -201,13 +201,11 @@ class UiSettings:
                     t = timer.Timer()
                     func()
                     t.record(text)
-
-                    return f'{text} in {t.total:.1f}s'
-
+                    return f'{text} in {t.total:.2f}s'
                 return handler
 
             unload_sd_model.click(
-            fn=call_func_and_return_text(lambda: (sd_models.model_data.unload_model(), "Unloaded the checkpoint")[1]),
+            fn=call_func_and_return_text(sd_models.model_data.unload_model, "Unloading checkpoint"),
             inputs=[],
             outputs=[self.result]
         )

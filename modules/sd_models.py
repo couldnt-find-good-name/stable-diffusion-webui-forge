@@ -534,11 +534,22 @@ class SdModelData:
 
     def unload_model(self):
         if self.sd_model is not None:
-            self.sd_model.unpatch_model()
+            print(f"Unloading model: {self.sd_model.__class__.__name__}")
+            # If the model has an unpatch_model method, call it
+            if hasattr(self.sd_model, 'unpatch_model'):
+                self.sd_model.unpatch_model()
+            # Remove the model from loaded models list
             self.loaded_sd_models = [m for m in self.loaded_sd_models if m != self.sd_model]
+            # Set the current model to None
             self.sd_model = None
-        torch.cuda.empty_cache()
-        gc.collect()
+            # Clear CUDA cache
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
+            # Run garbage collection
+            gc.collect()
+            return "Model unloaded successfully"
+        else:
+            return "No model was loaded to unload"
 
 model_data = SdModelData()
 
