@@ -32,13 +32,6 @@ def pad_cond(tensor, repeats, empty):
 
 
 class CFGDenoiser(torch.nn.Module):
-    """
-    Classifier free guidance denoiser. A wrapper for stable diffusion model (specifically for unet)
-    that can take a noisy picture and produce a noise-free picture using two guidances (prompts)
-    instead of one. Originally, the second prompt is just an empty string, but we use non-empty
-    negative prompt.
-    """
-
     def __init__(self, sampler):
         super().__init__()
         self.model_wrap = None
@@ -46,11 +39,7 @@ class CFGDenoiser(torch.nn.Module):
         self.nmask = None
         self.init_latent = None
         self.steps = None
-        """number of steps as specified by user in UI"""
-
         self.total_steps = None
-        """expected number of calls to denoiser calculated from self.steps and specifics of the selected sampler"""
-
         self.step = 0
         self.image_cfg_scale = None
         self.padded_cond_uncond = False
@@ -58,17 +47,14 @@ class CFGDenoiser(torch.nn.Module):
         self.sampler = sampler
         self.model_wrap = None
         self.p = None
-
-        # Backward Compatibility
         self.mask_before_denoising = False
-
         self.classic_ddim_eps_estimation = False
 
     @property
     def inner_model(self):
         raise NotImplementedError()
 
-    def combine_denoised(self, x_out, conds_list, uncond, cond_scale, timestep, x_in, cond):
+    def combine_denoised(self, x_out, conds_list, uncond, cond_scale):
         denoised_uncond = x_out[-uncond.shape[0]:]
         denoised = torch.clone(denoised_uncond)
 
@@ -108,29 +94,6 @@ class CFGDenoiser(torch.nn.Module):
         return cond, uncond
 
     def pad_cond_uncond_v0(self, cond, uncond):
-        """
-        Pads the 'uncond' tensor to match the shape of the 'cond' tensor.
-
-        If 'uncond' is a dictionary, it is assumed that the 'crossattn' key holds the tensor to be padded.
-        If 'uncond' is a tensor, it is padded directly.
-
-        If the number of columns in 'uncond' is less than the number of columns in 'cond', the last column of 'uncond'
-        is repeated to match the number of columns in 'cond'.
-
-        If the number of columns in 'uncond' is greater than the number of columns in 'cond', 'uncond' is truncated
-        to match the number of columns in 'cond'.
-
-        Args:
-            cond (torch.Tensor or DictWithShape): The condition tensor to match the shape of 'uncond'.
-            uncond (torch.Tensor or DictWithShape): The tensor to be padded, or a dictionary containing the tensor to be padded.
-
-        Returns:
-            tuple: A tuple containing the 'cond' tensor and the padded 'uncond' tensor.
-
-        Note:
-            This is the padding that was always used in DDIM before version 1.6.0
-        """
-
         is_dict_cond = isinstance(uncond, dict)
         uncond_vec = uncond['crossattn'] if is_dict_cond else uncond
 
@@ -150,6 +113,17 @@ class CFGDenoiser(torch.nn.Module):
 
         return cond, uncond
 
+    def apply_blend(self, current_latent, sigma):
+        blended_latent = current_latent * self.nmask + self.init_latent * self.mask
+
+        if self.p.scripts is not None:
+            from modules import scripts
+            mba = scripts.MaskBlendArgs(current_latent, self.nmask, self.init_latent, self.mask, blended_latent, denoiser=self, sigma=sigma)
+            self.p.scripts.on_mask_blend(self.p, mba)
+            blended_latent = mba.blended_latent
+
+        return blended_latent
+
     def forward(self, x, sigma, uncond, cond, cond_scale, s_min_uncond, image_cond):
         if state.interrupted or state.skipped:
             raise sd_samplers_common.InterruptedException
@@ -165,27 +139,56 @@ class CFGDenoiser(torch.nn.Module):
             x = x * (((real_sigma ** 2.0 + real_sigma_data ** 2.0) ** 0.5)[:, None, None, None])
             sigma = real_sigma
 
-        if sd_samplers_common.apply_refiner(self, x, sigma):
+        if sd_samplers_common.apply_refiner(self, sigma):
             cond = self.sampler.sampler_extra_args['cond']
             uncond = self.sampler.sampler_extra_args['uncond']
+
+        is_edit_model = shared.sd_model.cond_stage_key == "edit" and self.image_cfg_scale is not None and self.image_cfg_scale != 1.0
 
         cond_composition, cond = prompt_parser.reconstruct_multicond_batch(cond, self.step)
         uncond = prompt_parser.reconstruct_cond_batch(uncond, self.step)
 
-        if self.mask is not None:
-            noisy_initial_latent = self.init_latent + sigma[:, None, None, None] * torch.randn_like(self.init_latent).to(self.init_latent)
-            x = x * self.nmask + noisy_initial_latent * self.mask
+        assert not is_edit_model or all(len(conds) == 1 for conds in cond_composition), "AND is not supported for InstructPix2Pix checkpoint (unless using Image CFG scale = 1.0)"
+
+        # Blend in the original latents (before)
+        if self.mask_before_denoising and self.mask is not None:
+            x = self.apply_blend(x, sigma)
+
+        batch_size = len(cond_composition)
 
         denoiser_params = CFGDenoiserParams(x, image_cond, sigma, state.sampling_step, state.sampling_steps, cond, uncond, self)
         cfg_denoiser_callback(denoiser_params)
 
+        x = denoiser_params.x
+        image_cond = denoiser_params.image_cond
+        sigma = denoiser_params.sigma
+        cond = denoiser_params.text_cond
+        uncond = denoiser_params.text_uncond
+
+        # Handle skip_uncond logic
+        if (shared.opts.skip_early_cond != 0. and self.step / self.total_steps <= shared.opts.skip_early_cond) or \
+        ((self.step % 2 or shared.opts.s_min_uncond_all) and s_min_uncond > 0 and sigma[0] < s_min_uncond and not is_edit_model):
+            # Modify cond_composition to skip uncond
+            cond_composition = [conds for conds in cond_composition if any(weight != 0 for _, weight in conds)]
+            if not cond_composition:
+                cond_composition = [[(0, 1.0)]]  # Fallback to using the first condition if all were skipped
+
         denoised = forge_sampler.forge_sample(self, denoiser_params=denoiser_params,
-                                              cond_scale=cond_scale, cond_composition=cond_composition)
+                                            cond_scale=cond_scale, cond_composition=cond_composition)
 
-        if self.mask is not None:
-            denoised = denoised * self.nmask + self.init_latent * self.mask
+        # Blend in the original latents (after)
+        if not self.mask_before_denoising and self.mask is not None:
+            denoised = self.apply_blend(denoised, sigma)
 
-        preview = self.sampler.last_latent = denoised
+        self.sampler.last_latent = self.get_pred_x0(x, denoised, sigma)
+
+        if opts.live_preview_content == "Prompt":
+            preview = self.sampler.last_latent
+        elif opts.live_preview_content == "Negative prompt":
+            preview = self.get_pred_x0(x, denoised, sigma)
+        else:
+            preview = self.get_pred_x0(x, denoised, sigma)
+
         sd_samplers_common.store_latent(preview)
 
         after_cfg_callback_params = AfterCFGCallbackParams(denoised, state.sampling_step, state.sampling_steps)
@@ -199,4 +202,4 @@ class CFGDenoiser(torch.nn.Module):
             return eps
 
         return denoised.to(device=original_x_device, dtype=original_x_dtype)
-
+    
