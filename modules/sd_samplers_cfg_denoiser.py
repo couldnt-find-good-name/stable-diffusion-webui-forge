@@ -159,19 +159,43 @@ class CFGDenoiser(torch.nn.Module):
         denoiser_params = CFGDenoiserParams(x, image_cond, sigma, state.sampling_step, state.sampling_steps, cond, uncond, self)
         cfg_denoiser_callback(denoiser_params)
 
-        x = denoiser_params.x
-        image_cond = denoiser_params.image_cond
-        sigma = denoiser_params.sigma
+        x_in = denoiser_params.x
+        image_cond_in = denoiser_params.image_cond
+        sigma_in = denoiser_params.sigma
         cond = denoiser_params.text_cond
         uncond = denoiser_params.text_uncond
 
-        # Handle skip_uncond logic
-        if (shared.opts.skip_early_cond != 0. and self.step / self.total_steps <= shared.opts.skip_early_cond) or \
-        ((self.step % 2 or shared.opts.s_min_uncond_all) and s_min_uncond > 0 and sigma[0] < s_min_uncond and not is_edit_model):
-            # Modify cond_composition to skip uncond
-            cond_composition = [conds for conds in cond_composition if any(weight != 0 for _, weight in conds)]
-            if not cond_composition:
-                cond_composition = [[(0, 1.0)]]  # Fallback to using the first condition if all were skipped
+        skip_uncond = False
+        batch_size = len(cond_composition)
+
+        if shared.opts.skip_early_cond != 0. and self.step / self.total_steps <= shared.opts.skip_early_cond:
+            skip_uncond = True
+            self.p.extra_generation_params["Skip Early CFG"] = shared.opts.skip_early_cond
+        elif (self.step % 2 or shared.opts.s_min_uncond_all) and s_min_uncond > 0 and sigma[0] < s_min_uncond and not is_edit_model:
+            skip_uncond = True
+            self.p.extra_generation_params["NGMS"] = s_min_uncond
+            if shared.opts.s_min_uncond_all:
+                self.p.extra_generation_params["NGMS all steps"] = shared.opts.s_min_uncond_all
+
+        if skip_uncond:
+            if x_in.shape[0] > batch_size:
+                x_in = x_in[:-batch_size]
+                sigma_in = sigma_in[:-batch_size]
+                # Modify cond_composition to skip uncond
+                cond_composition = [conds for conds in cond_composition if any(weight != 0 for _, weight in conds)]
+                if not cond_composition:
+                    cond_composition = [[(0, 1.0)]]  # Fallback to using the first condition if all were skipped
+            else:
+                # If we can't skip uncond because it would make the tensor empty, don't skip
+                skip_uncond = False
+                print("Warning: Cannot skip uncond as it would result in empty tensor. Proceeding with uncond.")
+
+        # Update denoiser_params with potentially modified x_in and sigma_in
+        denoiser_params.x = x_in
+        denoiser_params.sigma = sigma_in
+
+        if x_in.shape[0] == 0:
+            raise ValueError("Input tensor became empty after skip_uncond. Cannot proceed with empty tensor.")
 
         denoised = forge_sampler.forge_sample(self, denoiser_params=denoiser_params,
                                             cond_scale=cond_scale, cond_composition=cond_composition)
