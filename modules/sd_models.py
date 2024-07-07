@@ -532,6 +532,13 @@ class SdModelData:
             sd_vae.loaded_vae_file = getattr(v, "loaded_vae_file", None)
             sd_vae.checkpoint_info = v.sd_checkpoint_info
 
+    def unload_model(self):
+        if self.sd_model is not None:
+            self.sd_model.unpatch_model()
+            self.loaded_sd_models = [m for m in self.loaded_sd_models if m != self.sd_model]
+            self.sd_model = None
+        torch.cuda.empty_cache()
+        gc.collect()
 
 model_data = SdModelData()
 
@@ -643,7 +650,19 @@ def reload_model_weights(sd_model=None, info=None, forced_reload=False):
 
 
 def unload_model_weights(sd_model=None, info=None):
-    return sd_model
+    global model_data
+    if sd_model is None:
+        sd_model = model_data.sd_model
+
+    if sd_model is not None:
+        print(f"Unloading model: {sd_model.sd_checkpoint_info.title}")
+        sd_model.unpatch_model()  # Call the unpatch_model method
+        model_data.sd_model = None
+        model_data.loaded_sd_models = [m for m in model_data.loaded_sd_models if m != sd_model]
+        del sd_model
+        torch.cuda.empty_cache()
+        gc.collect()
+    return "Model unloaded successfully"
 
 
 def apply_token_merging(sd_model, token_merging_ratio):

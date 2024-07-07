@@ -385,23 +385,17 @@ class ModelPatcher:
         return weight
 
     def unpatch_model(self, device_to=None):
-        keys = list(self.backup.keys())
-
-        if self.weight_inplace_update:
-            for k in keys:
-                ldm_patched.modules.utils.copy_to_param(self.model, k, self.backup[k])
-        else:
-            for k in keys:
-                ldm_patched.modules.utils.set_attr(self.model, k, self.backup[k])
-
+        for k in self.backup:
+            ldm_patched.modules.utils.set_attr(self.model, k, self.backup[k])
         self.backup = {}
+
+        for k in self.object_patches_backup:
+            ldm_patched.modules.utils.set_attr_raw(self.model, k, self.object_patches_backup[k])
+        self.object_patches_backup = {}
 
         if device_to is not None:
             self.model.to(device_to)
             self.current_device = device_to
 
-        keys = list(self.object_patches_backup.keys())
-        for k in keys:
-            ldm_patched.modules.utils.set_attr_raw(self.model, k, self.object_patches_backup[k])
-
-        self.object_patches_backup = {}
+        self.model.to(self.offload_device)
+        self.current_device = self.offload_device
