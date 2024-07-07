@@ -7,7 +7,6 @@ __pycache__
 /repositories
 /venv
 /tmp
-/output
 /model.ckpt
 /models/**/*
 /GFPGANv1.3.pth
@@ -41,46 +40,3 @@ notification.mp3
 /test/test_outputs
 /cache
 trace.json
-/test/results.xml
-coverage.xml
-**/tests/**/expectations
-models
-webui-user-7860-gpu0-nopass.bat
-webui-user-7860-gpu1-nopass.bat
-webui-user-7860-gpu2-nopass.bat
-webui-user-7980-gpu0.bat
-webui-user-7980-gpu1-noalwaysgpu.bat
-webui-user-7980-gpu1-noptm.bat
-webui-user-7980-gpu1.bat
-webui-user-7980-gpu2 - noallgpu.bat
-webui-user-7980-gpu2.bat
-webui-user-7981-gpu0 - nopass.bat
-webui-user-7981-gpu0.bat
-webui-user-7981-gpu2-noptm-nopass.bat
-webui-user-7981-gpu2.bat
-webui-user-7982-gpu0.bat
-webui-user-7982-gpu1.bat
-webui-user-7982-gpu2 - no pass.bat
-webui-user-7982-gpu2.bat
-webui-user-7991-gpu0 - no pass.bat
-webui-user-7991-gpu0.bat
-webui-user-7991-gpu1.bat
-webui-user-7991-gpu2 - no pass.bat
-webui-user-7991-gpu2.bat
-embeddings/Place Textual Inversion embeddings here.txt
-extensions/put extensions here.txt
-models/deepbooru/Put your deepbooru release project folder here.txt
-models/karlo/ViT-L-14_stats.th
-models/Stable-diffusion/Put Stable Diffusion checkpoints here.txt
-models/svd/put svd here.txt
-models/VAE/Put VAE here.txt
-models/VAE-approx/model.pt
-models/z123/put zero123 here.txt
-requirements_versions.txt
-requirements.txt
-4.8.0
-ranbooru_cache.sqlite
-webui.bundle
-webui.cert
-webui.key
-requirements.txt
