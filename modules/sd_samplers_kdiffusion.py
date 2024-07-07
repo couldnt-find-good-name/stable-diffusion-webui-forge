@@ -122,7 +122,7 @@ class KDiffusionSampler(sd_samplers_common.Sampler):
         if discard_next_to_last_sigma:
             sigmas = torch.cat([sigmas[:-2], sigmas[-1:]])
 
-        return sigmas
+        return sigmas.cpu()
 
     def sample_img2img(self, p, x, noise, conditioning, unconditional_conditioning, steps=None, image_conditioning=None):
         unet_patcher = self.model_wrap.inner_model.forge_objects.unet
