@@ -636,6 +636,10 @@ class DecodedSamples(list):
 
 def decode_latent_batch(model, batch, target_device=None, check_for_nans=False):
     samples = DecodedSamples()
+
+    if check_for_nans:
+        devices.test_for_nans(batch, "unet")
+
     samples_pytorch = decode_first_stage(model, batch).to(target_device)
 
     for x in samples_pytorch:
@@ -994,6 +998,7 @@ def process_images_inner(p: StableDiffusionProcessing) -> Processed:
             if getattr(samples_ddim, 'already_decoded', False):
                 x_samples_ddim = samples_ddim
             else:
+                devices.test_for_nans(samples_ddim, "unet")
                 if opts.sd_vae_decode_method != 'Full':
                     p.extra_generation_params['VAE Decoder'] = opts.sd_vae_decode_method
                 x_samples_ddim = decode_latent_batch(p.sd_model, samples_ddim, target_device=devices.cpu, check_for_nans=True)
