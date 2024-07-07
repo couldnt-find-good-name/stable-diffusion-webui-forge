@@ -1336,6 +1336,15 @@ class StableDiffusionProcessingTxt2Img(StableDiffusionProcessing):
 
             x = self.rng.next()
 
+            if self.scripts is not None:
+                self.scripts.process_before_every_sampling(
+                    p=self,
+                    x=x,
+                    noise=x,
+                    c=conditioning,
+                    uc=unconditional_conditioning
+                )
+
             self.sd_model.forge_objects = self.sd_model.forge_objects_after_applying_lora.shallow_copy()
             apply_token_merging(self.sd_model, self.get_token_merging_ratio())
 
@@ -1448,6 +1457,13 @@ class StableDiffusionProcessingTxt2Img(StableDiffusionProcessing):
 
         if self.scripts is not None:
             self.scripts.before_hr(self)
+            self.scripts.process_before_every_sampling(
+                p=self,
+                x=samples,
+                noise=noise,
+                c=self.hr_c,
+                uc=self.hr_uc,
+            )
 
         self.sd_model.forge_objects = self.sd_model.forge_objects_after_applying_lora.shallow_copy()
         apply_token_merging(self.sd_model, self.get_token_merging_ratio(for_hr=True))
@@ -1773,6 +1789,15 @@ class StableDiffusionProcessingImg2Img(StableDiffusionProcessing):
         if self.initial_noise_multiplier != 1.0:
             self.extra_generation_params["Noise multiplier"] = self.initial_noise_multiplier
             x *= self.initial_noise_multiplier
+
+        if self.scripts is not None:
+            self.scripts.process_before_every_sampling(
+                p=self,
+                x=self.init_latent,
+                noise=x,
+                c=conditioning,
+                uc=unconditional_conditioning
+            )
 
         self.sd_model.forge_objects = self.sd_model.forge_objects_after_applying_lora.shallow_copy()
         apply_token_merging(self.sd_model, self.get_token_merging_ratio())

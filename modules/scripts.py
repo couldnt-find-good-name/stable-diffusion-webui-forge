@@ -845,6 +845,14 @@ class ScriptRunner:
                 script.process(p, *script_args)
             except Exception:
                 errors.report(f"Error running process: {script.filename}", exc_info=True)
+                
+    def process_before_every_sampling(self, p, **kwargs):
+        for script in self.ordered_scripts('process_before_every_sampling'):
+            try:
+                script_args = p.script_args[script.args_from:script.args_to]
+                script.process_before_every_sampling(p, *script_args, **kwargs)
+            except Exception:
+                errors.report(f"Error running process_before_every_sampling: {script.filename}", exc_info=True)
 
     def before_process_batch(self, p, **kwargs):
         for script in self.alwayson_scripts:
