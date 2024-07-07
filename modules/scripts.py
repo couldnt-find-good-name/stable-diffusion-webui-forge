@@ -385,7 +385,7 @@ ScriptClassData = namedtuple("ScriptClassData", ["script_class", "path", "basedi
 
 def topological_sort(dependencies):
     """Accepts a dictionary mapping name to its dependencies, returns a list of names ordered according to dependencies.
-    Ignores errors relating to missing dependeencies or circular dependencies
+    Ignores errors relating to missing dependencies or circular dependencies
     """
 
     visited = {}
