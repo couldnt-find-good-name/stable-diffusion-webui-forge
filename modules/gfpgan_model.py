@@ -36,11 +36,13 @@ class FaceRestorerGFPGAN(face_restoration_utils.CommonFaceRestoration):
             ext_filter=['.pth'],
         ):
             if 'GFPGAN' in os.path.basename(model_path):
-                return modelloader.load_spandrel_model(
+                model = modelloader.load_spandrel_model(
                     model_path,
                     device=self.get_device(),
                     expected_architecture='GFPGAN',
                 ).model
+                model.different_w = True  # see https://github.com/chaiNNer-org/spandrel/pull/81
+                return model
         raise ValueError("No GFPGAN model found")
 
     def restore(self, np_image):
