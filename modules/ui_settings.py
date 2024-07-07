@@ -205,13 +205,13 @@ class UiSettings:
                 return handler
 
             unload_sd_model.click(
-            fn=call_func_and_return_text(sd_models.model_data.unload_model, "Unloading checkpoint"),
+            fn=call_func_and_return_text(sd_models.model_data.unload_model_to_ram, "Unloading checkpoint to RAM"),
             inputs=[],
             outputs=[self.result]
-        )
+)
 
             reload_sd_model.click(
-                fn=call_func_and_return_text(lambda: sd_models.send_model_to_device(shared.sd_model), 'Loaded the checkpoint'),
+                fn=call_func_and_return_text(sd_models.model_data.reload_model_from_ram, "Reloading checkpoint to VRAM"),
                 inputs=[],
                 outputs=[self.result]
             )

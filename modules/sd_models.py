@@ -10,6 +10,7 @@ from omegaconf import OmegaConf, ListConfig
 from urllib import request
 import ldm.modules.midas as midas
 import gc
+import copy
 
 from ldm.util import instantiate_from_config
 
@@ -503,6 +504,7 @@ class SdModelData:
         self.loaded_sd_models = []
         self.was_loaded_at_least_once = False
         self.lock = threading.Lock()
+        self.cpu_backup = None  # New attribute to store CPU copy
 
     def get_sd_model(self):
         if self.was_loaded_at_least_once:
@@ -532,24 +534,39 @@ class SdModelData:
             sd_vae.loaded_vae_file = getattr(v, "loaded_vae_file", None)
             sd_vae.checkpoint_info = v.sd_checkpoint_info
 
-    def unload_model(self):
+    def unload_model_to_ram(self):
         if self.sd_model is not None:
-            print(f"Unloading model: {self.sd_model.__class__.__name__}")
-            # If the model has an unpatch_model method, call it
-            if hasattr(self.sd_model, 'unpatch_model'):
-                self.sd_model.unpatch_model()
-            # Remove the model from loaded models list
-            self.loaded_sd_models = [m for m in self.loaded_sd_models if m != self.sd_model]
-            # Set the current model to None
+            print(f"Unloading model to RAM: {self.sd_model.__class__.__name__}")
+            
+            # Create a deep copy of the model on CPU
+            self.cpu_backup = copy.deepcopy(self.sd_model).cpu()
+            
+            # Clear the GPU model
+            del self.sd_model
             self.sd_model = None
+            
             # Clear CUDA cache
             if torch.cuda.is_available():
                 torch.cuda.empty_cache()
+            
             # Run garbage collection
             gc.collect()
-            return "Model unloaded successfully"
+            
+            return "Model unloaded to RAM successfully"
         else:
             return "No model was loaded to unload"
+
+    def reload_model_from_ram(self):
+        if self.cpu_backup is not None:
+            print(f"Reloading model from RAM to VRAM")
+            
+            # Move the CPU backup to GPU
+            self.sd_model = self.cpu_backup.to(torch.device('cuda'))
+            self.cpu_backup = None
+            
+            return "Model reloaded to VRAM successfully"
+        else:
+            return "No model in RAM to reload"
 
 model_data = SdModelData()
 
