@@ -481,6 +481,14 @@ def repair_config(sd_config):
         karlo_path = os.path.join(paths.models_path, 'karlo')
         sd_config.model.params.noise_aug_config.params.clip_stats_path = sd_config.model.params.noise_aug_config.params.clip_stats_path.replace("checkpoints/karlo_models", karlo_path)
 
+    # Do not use checkpoint for inference.
+    # This helps prevent extra performance overhead on checking parameters.
+    # The perf overhead is about 100ms/it on 4090 for SDXL.
+    if hasattr(sd_config.model.params, "network_config"):
+        sd_config.model.params.network_config.params.use_checkpoint = False
+    if hasattr(sd_config.model.params, "unet_config"):
+        sd_config.model.params.unet_config.params.use_checkpoint = False
+
 
 sd1_clip_weight = 'cond_stage_model.transformer.text_model.embeddings.token_embedding.weight'
 sd2_clip_weight = 'cond_stage_model.model.transformer.resblocks.0.attn.in_proj_weight'
