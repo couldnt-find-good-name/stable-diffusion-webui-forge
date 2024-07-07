@@ -62,8 +62,7 @@ def find_noise_for_image(p, cond, uncond, cfg_scale, steps):
 Cached = namedtuple("Cached", ["noise", "cfg_scale", "steps", "latent", "original_prompt", "original_negative_prompt", "sigma_adjustment"])
 
 
-# Based on changes suggested by briansemrau in https://github.com/AUTOMATIC1111/stable-diffusion-webui/issues/736
-def find_noise_for_image_sigma_adjustment(p, cond, uncond, cfg_scale, steps):
+def find_noise_for_image(p, cond, uncond, cfg_scale, steps):
     x = p.init_latent
 
     s_in = x.new_ones([x.shape[0]])
@@ -77,45 +76,65 @@ def find_noise_for_image_sigma_adjustment(p, cond, uncond, cfg_scale, steps):
 
     shared.state.sampling_steps = steps
 
+    # Determine the precision of the model
+    model_dtype = next(shared.sd_model.parameters()).dtype
+
     for i in trange(1, len(sigmas)):
         shared.state.sampling_step += 1
 
         x_in = torch.cat([x] * 2)
-        sigma_in = torch.cat([sigmas[i - 1] * s_in] * 2)
-        cond_in = torch.cat([uncond, cond])
+        sigma_in = torch.cat([sigmas[i] * s_in] * 2)
 
-        image_conditioning = torch.cat([p.image_conditioning] * 2)
-        cond_in = {"c_concat": [image_conditioning], "c_crossattn": [cond_in]}
-
-        c_out, c_in = [K.utils.append_dims(k, x_in.ndim) for k in dnw.get_scalings(sigma_in)[skip:]]
-
-        if i == 1:
-            t = dnw.sigma_to_t(torch.cat([sigmas[i] * s_in] * 2))
+        # Handle both tensor and dictionary inputs for cond and uncond
+        if isinstance(cond, dict) and isinstance(uncond, dict):
+            cond_in = {
+                key: torch.cat([uncond[key], cond[key]]).to(model_dtype)
+                for key in cond.keys()
+            }
         else:
-            t = dnw.sigma_to_t(sigma_in)
+            cond_in = torch.cat([uncond, cond]).to(model_dtype)
+
+        image_conditioning = torch.cat([p.image_conditioning] * 2).to(model_dtype)
+        
+        if isinstance(cond_in, dict):
+            if 'c_concat' in cond_in:
+                cond_in['c_concat'] = [torch.cat([cond_in['c_concat'][0], image_conditioning])]
+            else:
+                cond_in['c_concat'] = [image_conditioning]
+        else:
+            cond_in = {"c_concat": [image_conditioning], "c_crossattn": [cond_in]}
+
+        # Handle the case where get_scalings returns more than 2 values
+        scalings = dnw.get_scalings(sigma_in)[skip:]
+        c_out, c_in = scalings[0], scalings[-1]  # take the first and last values
+
+        c_out, c_in = [K.utils.append_dims(k, x_in.ndim) for k in (c_out, c_in)]
+        t = dnw.sigma_to_t(sigma_in)
+
+        # Ensure all inputs are in the same precision
+        x_in = x_in.to(model_dtype)
+        c_in = c_in.to(model_dtype)
+        t = t.to(model_dtype)
 
         eps = shared.sd_model.apply_model(x_in * c_in, t, cond=cond_in)
         denoised_uncond, denoised_cond = (x_in + eps * c_out).chunk(2)
 
         denoised = denoised_uncond + (denoised_cond - denoised_uncond) * cfg_scale
 
-        if i == 1:
-            d = (x - denoised) / (2 * sigmas[i])
-        else:
-            d = (x - denoised) / sigmas[i - 1]
-
+        d = (x - denoised) / sigmas[i]
         dt = sigmas[i] - sigmas[i - 1]
+
         x = x + d * dt
 
         sd_samplers_common.store_latent(x)
 
         # This shouldn't be necessary, but solved some VRAM issues
-        del x_in, sigma_in, cond_in, c_out, c_in, t,
+        del x_in, sigma_in, cond_in, c_out, c_in, t
         del eps, denoised_uncond, denoised_cond, denoised, d, dt
 
     shared.state.nextjob()
 
-    return x / sigmas[-1]
+    return x / x.std()
 
 
 class Script(scripts.Script):
@@ -170,7 +189,7 @@ class Script(scripts.Script):
             p.denoising_strength = 1.0
 
         def sample_extra(conditioning, unconditional_conditioning, seeds, subseeds, subseed_strength, prompts):
-            lat = (p.init_latent.cpu().numpy() * 10).astype(int)
+            lat = (p.init_latent.float().cpu().numpy() * 10).astype(int)
 
             same_params = self.cache is not None and self.cache.cfg_scale == cfg and self.cache.steps == st \
                                 and self.cache.original_prompt == original_prompt \

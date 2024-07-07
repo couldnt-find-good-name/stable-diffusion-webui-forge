@@ -113,31 +113,24 @@ class CFGDenoiser(torch.nn.Module):
 
         return cond, uncond
 
-    def apply_blend(self, current_latent, sigma):
-        blended_latent = current_latent * self.nmask + self.init_latent * self.mask
-
+    def apply_blend(self, current_latent, noisy_initial_latent=None):
+        if noisy_initial_latent is None:
+            noisy_initial_latent = self.init_latent
+        blended_latent = current_latent * self.nmask + noisy_initial_latent * self.mask
+        
         if self.p.scripts is not None:
             from modules import scripts
-            mba = scripts.MaskBlendArgs(current_latent, self.nmask, self.init_latent, self.mask, blended_latent, denoiser=self, sigma=sigma)
+            mba = scripts.MaskBlendArgs(current_latent, self.nmask, self.init_latent, self.mask, blended_latent, denoiser=self, sigma=self.sigma)
             self.p.scripts.on_mask_blend(self.p, mba)
             blended_latent = mba.blended_latent
-
+        
         return blended_latent
 
     def forward(self, x, sigma, uncond, cond, cond_scale, s_min_uncond, image_cond):
         if state.interrupted or state.skipped:
             raise sd_samplers_common.InterruptedException
 
-        original_x_device = x.device
-        original_x_dtype = x.dtype
-
-        if self.classic_ddim_eps_estimation:
-            acd = self.inner_model.inner_model.alphas_cumprod
-            fake_sigmas = ((1 - acd) / acd) ** 0.5
-            real_sigma = fake_sigmas[sigma.round().long().clip(0, int(fake_sigmas.shape[0]))]
-            real_sigma_data = 1.0
-            x = x * (((real_sigma ** 2.0 + real_sigma_data ** 2.0) ** 0.5)[:, None, None, None])
-            sigma = real_sigma
+        self.sigma = sigma
 
         if sd_samplers_common.apply_refiner(self, sigma):
             cond = self.sampler.sampler_extra_args['cond']
@@ -152,7 +145,8 @@ class CFGDenoiser(torch.nn.Module):
 
         # Blend in the original latents (before)
         if self.mask_before_denoising and self.mask is not None:
-            x = self.apply_blend(x, sigma)
+            noisy_initial_latent = self.init_latent + sigma[:, None, None, None] * torch.randn_like(self.init_latent).to(self.init_latent)
+            x = self.apply_blend(x, noisy_initial_latent)
 
         batch_size = len(cond_composition)
 
@@ -166,7 +160,6 @@ class CFGDenoiser(torch.nn.Module):
         uncond = denoiser_params.text_uncond
 
         skip_uncond = False
-        batch_size = len(cond_composition)
 
         if shared.opts.skip_early_cond != 0. and self.step / self.total_steps <= shared.opts.skip_early_cond:
             skip_uncond = True
@@ -202,16 +195,16 @@ class CFGDenoiser(torch.nn.Module):
 
         # Blend in the original latents (after)
         if not self.mask_before_denoising and self.mask is not None:
-            denoised = self.apply_blend(denoised, sigma)
+            denoised = self.apply_blend(denoised)
 
-        self.sampler.last_latent = self.get_pred_x0(x, denoised, sigma)
+        self.sampler.last_latent = self.get_pred_x0(x_in, denoised, sigma_in)
 
         if opts.live_preview_content == "Prompt":
             preview = self.sampler.last_latent
         elif opts.live_preview_content == "Negative prompt":
-            preview = self.get_pred_x0(x, denoised, sigma)
+            preview = self.get_pred_x0(x_in, denoised, sigma_in)
         else:
-            preview = self.get_pred_x0(x, denoised, sigma)
+            preview = self.get_pred_x0(x_in, denoised, sigma_in)
 
         sd_samplers_common.store_latent(preview)
 
@@ -221,9 +214,5 @@ class CFGDenoiser(torch.nn.Module):
 
         self.step += 1
 
-        if self.classic_ddim_eps_estimation:
-            eps = (x - denoised) / sigma[:, None, None, None]
-            return eps
-
-        return denoised.to(device=original_x_device, dtype=original_x_dtype)
+        return denoised
     
