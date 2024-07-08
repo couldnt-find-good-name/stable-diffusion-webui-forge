@@ -21,7 +21,6 @@ import modules_forge.ops as forge_ops
 from ldm_patched.modules.ops import manual_cast
 from ldm_patched.modules import model_management as model_management
 import ldm_patched.modules.model_patcher
-import time
 
 
 model_dir = "Stable-diffusion"
@@ -526,7 +525,6 @@ class SdModelData:
 
     def set_sd_model(self, v, already_loaded=False):
         self.sd_model = v
-        v.last_used = time.time()  # Set last used time when setting a new model
         if already_loaded:
             sd_vae.base_vae = getattr(v, "base_vae", None)
             sd_vae.loaded_vae_file = getattr(v, "loaded_vae_file", None)
@@ -566,50 +564,39 @@ def send_model_to_trash(m):
 
 def load_model(checkpoint_info=None, already_loaded_state_dict=None):
     from modules import sd_hijack
-
     checkpoint_info = checkpoint_info or select_checkpoint()
 
     timer = Timer()
 
-    # Check if the model is already loaded as the primary model
-    if model_data.sd_model and model_data.sd_model.filename == checkpoint_info.filename:
-        model_data.sd_model.last_used = time.time()  # Update last used time
-        return model_data.sd_model
+    if model_data.sd_model:
+        if model_data.sd_model.filename == checkpoint_info.filename:
+            return model_data.sd_model
 
-    # Check if the model is already in the loaded models list
-    for loaded_model in model_data.loaded_sd_models:
-        if loaded_model.filename == checkpoint_info.filename:
-            print(f" --> Using already loaded model {loaded_model.sd_checkpoint_info.title}: done in {timer.summary()}")
-            loaded_model.last_used = time.time()  # Update last used time
-            model_data.set_sd_model(loaded_model, already_loaded=True)
-            return loaded_model
-
-    # If we've reached the model limit, unload the least recently used model
-    if len(model_data.loaded_sd_models) >= shared.opts.sd_checkpoints_limit:
-        least_recent_model = min(model_data.loaded_sd_models, key=lambda m: m.last_used)
-        print(f" ------------ Unloading least recently used model: {least_recent_model.sd_checkpoint_info.title} -------------")
-        model_data.loaded_sd_models.remove(least_recent_model)
-        if model_data.sd_model == least_recent_model:
-            model_data.sd_model = None
-        del least_recent_model
+        model_data.sd_model = None
+        model_data.loaded_sd_models = []
+        model_management.unload_all_models()
         model_management.soft_empty_cache()
         gc.collect()
-    timer.record("unload least recent model if needed")
 
-    print(f"Loading model {checkpoint_info.title} ({len(model_data.loaded_sd_models) + 1} out of {shared.opts.sd_checkpoints_limit})")
+    timer.record("unload existing model")
 
     if already_loaded_state_dict is not None:
         state_dict = already_loaded_state_dict
     else:
         state_dict = get_checkpoint_state_dict(checkpoint_info, timer)
 
+    if shared.opts.sd_checkpoint_cache > 0:
+        # cache newly loaded model
+        checkpoints_loaded[checkpoint_info] = state_dict.copy()
+
     sd_model = forge_loader.load_model_for_a1111(timer=timer, checkpoint_info=checkpoint_info, state_dict=state_dict)
     sd_model.filename = checkpoint_info.filename
-    sd_model.last_used = time.time()  # Set initial last used time
 
-    model_data.loaded_sd_models.append(sd_model)
-    model_data.set_sd_model(sd_model)
-    model_data.was_loaded_at_least_once = True
+    del state_dict
+
+    # clean up cache if limit is reached
+    while len(checkpoints_loaded) > shared.opts.sd_checkpoint_cache:
+        checkpoints_loaded.popitem(last=False)
 
     shared.opts.data["sd_checkpoint_hash"] = checkpoint_info.sha256
 
@@ -619,14 +606,20 @@ def load_model(checkpoint_info=None, already_loaded_state_dict=None):
     sd_vae.load_vae(sd_model, vae_file, vae_source)
     timer.record("load VAE")
 
-    sd_hijack.model_hijack.embedding_db.load_textual_inversion_embeddings(force_reload=True)
+    model_data.set_sd_model(sd_model)
+    model_data.was_loaded_at_least_once = True
+
+    sd_hijack.model_hijack.embedding_db.load_textual_inversion_embeddings(force_reload=True)  # Reload embeddings after model load as they may or may not fit the model
+
     timer.record("load textual inversion embeddings")
 
     script_callbacks.model_loaded_callback(sd_model)
+
     timer.record("scripts callbacks")
 
     with torch.no_grad():
         sd_model.cond_stage_model_empty_prompt = get_empty_cond(sd_model)
+
     timer.record("calculate empty prompt")
 
     print(f"Model loaded in {timer.summary()}.")
