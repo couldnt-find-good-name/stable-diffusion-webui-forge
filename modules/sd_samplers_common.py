@@ -153,9 +153,6 @@ replace_torchsde_browinan()
 
 
 def apply_refiner(cfg_denoiser, x, sigma=None):
-    print("Shape of x in apply_refiner:", x.shape)
-    print("Refiner switch at:", cfg_denoiser.p.refiner_switch_at)
-
     if cfg_denoiser.refiner_applied:
         return False
 
@@ -167,9 +164,6 @@ def apply_refiner(cfg_denoiser, x, sigma=None):
         except AttributeError:
             timestep = torch.max(sigma).to(dtype=int)
         completed_ratio = (999 - timestep) / 1000
-
-    print("Completed ratio:", completed_ratio)
-    print("Refiner checkpoint info:", cfg_denoiser.p.refiner_checkpoint_info)
 
     refiner_switch_at = cfg_denoiser.p.refiner_switch_at
     refiner_checkpoint_info = cfg_denoiser.p.refiner_checkpoint_info

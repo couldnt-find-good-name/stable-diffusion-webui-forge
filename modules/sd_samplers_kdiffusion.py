@@ -187,7 +187,6 @@ class KDiffusionSampler(sd_samplers_common.Sampler):
         return samples
 
     def sample(self, p, x, conditioning, unconditional_conditioning, steps=None, image_conditioning=None):
-        print("Shape of x at the start of sample method:", x.shape)
         unet_patcher = self.model_wrap.inner_model.forge_objects.unet
         sampling_prepare(self.model_wrap.inner_model.forge_objects.unet, x=x)
         self.model_wrap.log_sigmas = self.model_wrap.log_sigmas.to(x.device)
@@ -222,10 +221,8 @@ class KDiffusionSampler(sd_samplers_common.Sampler):
             's_min_uncond': self.s_min_uncond
         }
         
-        print("Shape of x in sample method:", x.shape)
         
         def wrapped_func(model_wrap_cfg, x, extra_args, disable, callback, **kwargs):
-            print("Shape of x in wrapped_func:", x.shape)
             return self.func(model_wrap_cfg, x, extra_args=extra_args, disable=disable, callback=callback, **kwargs)
 
         if hasattr(self.model_wrap_cfg, 'refiner_steps') and self.model_wrap_cfg.refiner_steps > 0:
@@ -241,8 +238,6 @@ class KDiffusionSampler(sd_samplers_common.Sampler):
             self.model_wrap_cfg.step = initial_steps  # Reset step count for refiner
             self.model_wrap_cfg.refiner_applied = False  # Reset refiner flag
             samples = self.launch_sampling(refiner_steps, lambda: wrapped_func(self.model_wrap_cfg, samples, self.sampler_extra_args, False, self.callback_state, **extra_params_kwargs))
-
-        print("Shape of samples after launch_sampling:", samples.shape)
         
         self.add_infotext(p)
         sampling_cleanup(unet_patcher)

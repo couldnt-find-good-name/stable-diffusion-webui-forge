@@ -129,7 +129,6 @@ class CFGDenoiser(torch.nn.Module):
         return blended_latent
 
     def forward(self, x, sigma, uncond, cond, cond_scale, s_min_uncond, image_cond):
-        print("Shape of x in CFGDenoiser forward:", x.shape)
         if state.interrupted or state.skipped:
             raise sd_samplers_common.InterruptedException
 
