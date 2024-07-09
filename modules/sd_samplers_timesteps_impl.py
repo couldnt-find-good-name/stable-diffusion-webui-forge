@@ -18,17 +18,8 @@ def ddim(model, x, timesteps, extra_args=None, callback=None, disable=None, eta=
     extra_args = {} if extra_args is None else extra_args
     s_in = x.new_ones((x.shape[0]))
     s_x = x.new_ones((x.shape[0], 1, 1, 1))
-
-    refiner_steps = getattr(model, 'refiner_steps', 0)
-    total_steps = len(timesteps)
-    initial_steps = total_steps - refiner_steps
-
-    for i in tqdm.trange(total_steps - 1, disable=disable):
-        index = total_steps - 1 - i
-        
-        if i == initial_steps and refiner_steps > 0:
-            model.step = initial_steps
-            model.refiner_applied = False
+    for i in tqdm.trange(len(timesteps) - 1, disable=disable):
+        index = len(timesteps) - 1 - i
 
         e_t = model(x, timesteps[index].item() * s_in, **extra_args)
 
@@ -74,18 +65,8 @@ def plms(model, x, timesteps, extra_args=None, callback=None, disable=None):
         x_prev = a_prev.sqrt() * pred_x0 + dir_xt
         return x_prev, pred_x0
 
-    refiner_steps = getattr(model, 'refiner_steps', 0)
-    total_steps = len(timesteps)
-    initial_steps = total_steps - refiner_steps
-
-    for i in tqdm.trange(total_steps - 1, disable=disable):
-        index = total_steps - 1 - i
-        
-        if i == initial_steps and refiner_steps > 0:
-            model.step = initial_steps
-            model.refiner_applied = False
-            old_eps = []  # Reset old_eps when switching to refiner
-
+    for i in tqdm.trange(len(timesteps) - 1, disable=disable):
+        index = len(timesteps) - 1 - i
         ts = timesteps[index].item() * s_in
         t_next = timesteps[max(index - 1, 0)].item() * s_in
 
@@ -133,19 +114,12 @@ class UniPCCFG(uni_pc.UniPC):
         self.callback = callback
         self.index = 0
         self.after_update = after_update
-        self.refiner_steps = getattr(cfg_model, 'refiner_steps', 0)
-        self.refiner_applied = False
 
     def get_model_input_time(self, t_continuous):
         return (t_continuous - 1. / self.noise_schedule.total_N) * 1000.
 
     def model(self, x, t):
         t_input = self.get_model_input_time(t)
-
-        if self.index == self.noise_schedule.total_N - self.refiner_steps and not self.refiner_applied:
-            self.cfg_model.step = self.noise_schedule.total_N - self.refiner_steps
-            self.cfg_model.refiner_applied = False
-            self.refiner_applied = True
 
         res = self.cfg_model(x, t_input, **self.extra_args)
 
@@ -156,20 +130,8 @@ def unipc(model, x, timesteps, extra_args=None, callback=None, disable=None, is_
     alphas_cumprod = model.inner_model.inner_model.alphas_cumprod
 
     ns = uni_pc.NoiseScheduleVP('discrete', alphas_cumprod=alphas_cumprod)
-    t_start = timesteps[-1] / 1000 + 1 / 1000 if is_img2img else None
-
-    refiner_steps = getattr(model, 'refiner_steps', 0)
-    total_steps = len(timesteps)
-    initial_steps = total_steps - refiner_steps
-
-    def wrapped_callback(state):
-        if state['i'] == initial_steps and refiner_steps > 0:
-            model.step = initial_steps
-            model.refiner_applied = False
-        if callback is not None:
-            callback(state)
-
-    unipc_sampler = UniPCCFG(model, extra_args, wrapped_callback, ns, predict_x0=True, thresholding=False, variant=shared.opts.uni_pc_variant)
-    x = unipc_sampler.sample(x, steps=total_steps, t_start=t_start, skip_type=shared.opts.uni_pc_skip_type, method="multistep", order=shared.opts.uni_pc_order, lower_order_final=shared.opts.uni_pc_lower_order_final)
+    t_start = timesteps[-1] / 1000 + 1 / 1000 if is_img2img else None  # this is likely off by a bit - if someone wants to fix it please by all means
+    unipc_sampler = UniPCCFG(model, extra_args, callback, ns, predict_x0=True, thresholding=False, variant=shared.opts.uni_pc_variant)
+    x = unipc_sampler.sample(x, steps=len(timesteps), t_start=t_start, skip_type=shared.opts.uni_pc_skip_type, method="multistep", order=shared.opts.uni_pc_order, lower_order_final=shared.opts.uni_pc_lower_order_final)
 
     return x
