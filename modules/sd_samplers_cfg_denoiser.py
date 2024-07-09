@@ -49,6 +49,8 @@ class CFGDenoiser(torch.nn.Module):
         self.p = None
         self.mask_before_denoising = False
         self.classic_ddim_eps_estimation = False
+        self.refiner_applied = False
+        self.refiner_steps = 0
 
     @property
     def inner_model(self):
