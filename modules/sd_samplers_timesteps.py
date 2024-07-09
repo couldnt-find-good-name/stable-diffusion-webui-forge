@@ -4,10 +4,10 @@ import sys
 from modules import devices, sd_samplers_common, sd_samplers_timesteps_impl
 from modules.sd_samplers_cfg_denoiser import CFGDenoiser
 from modules.script_callbacks import ExtraNoiseParams, extra_noise_callback
+from modules_forge.forge_sampler import sampling_prepare, sampling_cleanup
 
 from modules.shared import opts
 import modules.shared as shared
-from modules_forge.forge_sampler import sampling_prepare, sampling_cleanup
 
 
 samplers_timesteps = [
@@ -52,11 +52,10 @@ class CFGDenoiserTimesteps(CFGDenoiser):
         super().__init__(sampler)
 
         self.alphas = shared.sd_model.alphas_cumprod
-        self.classic_ddim_eps_estimation = True
+        self.mask_before_denoising = True
 
     def get_pred_x0(self, x_in, x_out, sigma):
         ts = sigma.to(dtype=int)
-        self.alphas = self.alphas.to(ts.device)
 
         a_t = self.alphas[ts][:, None, None, None]
         sqrt_one_minus_at = (1 - a_t).sqrt()
@@ -101,18 +100,16 @@ class CompVisSampler(sd_samplers_common.Sampler):
         unet_patcher = self.model_wrap.inner_model.forge_objects.unet
         sampling_prepare(self.model_wrap.inner_model.forge_objects.unet, x=x)
 
-        self.model_wrap.inner_model.alphas_cumprod = self.model_wrap.inner_model.alphas_cumprod.to(x.device)
-
         steps, t_enc = sd_samplers_common.setup_img2img_steps(p, steps)
 
-        timesteps = self.get_timesteps(p, steps).to(x.device)
+        timesteps = self.get_timesteps(p, steps)
         timesteps_sched = timesteps[:t_enc]
 
         alphas_cumprod = shared.sd_model.alphas_cumprod
         sqrt_alpha_cumprod = torch.sqrt(alphas_cumprod[timesteps[t_enc]])
         sqrt_one_minus_alpha_cumprod = torch.sqrt(1 - alphas_cumprod[timesteps[t_enc]])
 
-        xi = x.to(noise) * sqrt_alpha_cumprod + noise * sqrt_one_minus_alpha_cumprod
+        xi = x * sqrt_alpha_cumprod + noise * sqrt_one_minus_alpha_cumprod
 
         if opts.img2img_extra_noise > 0:
             p.extra_generation_params["Extra noise"] = opts.img2img_extra_noise
@@ -151,10 +148,8 @@ class CompVisSampler(sd_samplers_common.Sampler):
         unet_patcher = self.model_wrap.inner_model.forge_objects.unet
         sampling_prepare(self.model_wrap.inner_model.forge_objects.unet, x=x)
 
-        self.model_wrap.inner_model.alphas_cumprod = self.model_wrap.inner_model.alphas_cumprod.to(x.device)
-
         steps = steps or p.steps
-        timesteps = self.get_timesteps(p, steps).to(x.device)
+        timesteps = self.get_timesteps(p, steps)
 
         extra_params_kwargs = self.initialize(p)
         parameters = inspect.signature(self.func).parameters
