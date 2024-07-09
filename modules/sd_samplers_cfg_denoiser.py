@@ -49,6 +49,8 @@ class CFGDenoiser(torch.nn.Module):
         self.p = None
         self.mask_before_denoising = False
         self.classic_ddim_eps_estimation = False
+        self.refiner_applied = False
+        self.refiner_steps = 0
 
     @property
     def inner_model(self):
@@ -127,6 +129,7 @@ class CFGDenoiser(torch.nn.Module):
         return blended_latent
 
     def forward(self, x, sigma, uncond, cond, cond_scale, s_min_uncond, image_cond):
+        print("Shape of x in CFGDenoiser forward:", x.shape)
         if state.interrupted or state.skipped:
             raise sd_samplers_common.InterruptedException
 

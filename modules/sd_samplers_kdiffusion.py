@@ -187,42 +187,32 @@ class KDiffusionSampler(sd_samplers_common.Sampler):
         return samples
 
     def sample(self, p, x, conditioning, unconditional_conditioning, steps=None, image_conditioning=None):
+        print("Shape of x at the start of sample method:", x.shape)
         unet_patcher = self.model_wrap.inner_model.forge_objects.unet
         sampling_prepare(self.model_wrap.inner_model.forge_objects.unet, x=x)
-
         self.model_wrap.log_sigmas = self.model_wrap.log_sigmas.to(x.device)
         self.model_wrap.sigmas = self.model_wrap.sigmas.to(x.device)
-
         steps = steps or p.steps
-
         sigmas = self.get_sigmas(p, steps).to(x.device)
-
         if opts.sgm_noise_multiplier:
             p.extra_generation_params["SGM noise multiplier"] = True
             x = x * torch.sqrt(1.0 + sigmas[0] ** 2.0)
         else:
             x = x * sigmas[0]
-
         extra_params_kwargs = self.initialize(p)
         parameters = inspect.signature(self.func).parameters
-
         if 'n' in parameters:
             extra_params_kwargs['n'] = steps
-
         if 'sigma_min' in parameters:
             extra_params_kwargs['sigma_min'] = self.model_wrap.sigmas[0].item()
             extra_params_kwargs['sigma_max'] = self.model_wrap.sigmas[-1].item()
-
         if 'sigmas' in parameters:
             extra_params_kwargs['sigmas'] = sigmas
-
         if self.config.options.get('brownian_noise', False):
             noise_sampler = self.create_noise_sampler(x, sigmas, p)
             extra_params_kwargs['noise_sampler'] = noise_sampler
-
         if self.config.options.get('solver_type', None) == 'heun':
             extra_params_kwargs['solver_type'] = 'heun'
-
         self.last_latent = x
         self.sampler_extra_args = {
             'cond': conditioning,
@@ -231,13 +221,30 @@ class KDiffusionSampler(sd_samplers_common.Sampler):
             'cond_scale': p.cfg_scale,
             's_min_uncond': self.s_min_uncond
         }
+        
+        print("Shape of x in sample method:", x.shape)
+        
+        def wrapped_func(model_wrap_cfg, x, extra_args, disable, callback, **kwargs):
+            print("Shape of x in wrapped_func:", x.shape)
+            return self.func(model_wrap_cfg, x, extra_args=extra_args, disable=disable, callback=callback, **kwargs)
 
-        samples = self.launch_sampling(steps, lambda: self.func(self.model_wrap_cfg, x, extra_args=self.sampler_extra_args, disable=False, callback=self.callback_state, **extra_params_kwargs))
+        if hasattr(self.model_wrap_cfg, 'refiner_steps') and self.model_wrap_cfg.refiner_steps > 0:
+            initial_steps = steps - self.model_wrap_cfg.refiner_steps
+            refiner_steps = self.model_wrap_cfg.refiner_steps
+        else:
+            initial_steps = steps
+            refiner_steps = 0
 
+        samples = self.launch_sampling(initial_steps, lambda: wrapped_func(self.model_wrap_cfg, x, self.sampler_extra_args, False, self.callback_state, **extra_params_kwargs))
+
+        if refiner_steps > 0:
+            self.model_wrap_cfg.step = initial_steps  # Reset step count for refiner
+            self.model_wrap_cfg.refiner_applied = False  # Reset refiner flag
+            samples = self.launch_sampling(refiner_steps, lambda: wrapped_func(self.model_wrap_cfg, samples, self.sampler_extra_args, False, self.callback_state, **extra_params_kwargs))
+
+        print("Shape of samples after launch_sampling:", samples.shape)
+        
         self.add_infotext(p)
-
         sampling_cleanup(unet_patcher)
-
+        
         return samples
-
-

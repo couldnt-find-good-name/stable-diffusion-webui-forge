@@ -90,6 +90,7 @@ def forge_sample(self, denoiser_params, cond_scale, cond_composition):
 
 
 def sampling_prepare(unet, x):
+    print("Shape of x in sampling_prepare:", x.shape)
     B, C, H, W = x.shape
 
     memory_estimation_function = unet.model_options.get('memory_peak_estimation_modifier', unet.memory_required)

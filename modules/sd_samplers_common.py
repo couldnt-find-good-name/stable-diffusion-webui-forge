@@ -153,35 +153,36 @@ replace_torchsde_browinan()
 
 
 def apply_refiner(cfg_denoiser, x, sigma=None):
+    print("Shape of x in apply_refiner:", x.shape)
+    print("Refiner switch at:", cfg_denoiser.p.refiner_switch_at)
+
+    if cfg_denoiser.refiner_applied:
+        return False
+
     if opts.refiner_switch_by_sample_steps or sigma is None:
         completed_ratio = cfg_denoiser.step / cfg_denoiser.total_steps
     else:
-        # torch.max(sigma) only to handle rare case where we might have different sigmas in the same batch
         try:
             timestep = torch.argmin(torch.abs(cfg_denoiser.inner_model.sigmas - torch.max(sigma)))
-        except AttributeError: # for samplers that don't use sigmas (DDIM) sigma is actually the timestep
+        except AttributeError:
             timestep = torch.max(sigma).to(dtype=int)
         completed_ratio = (999 - timestep) / 1000
+
+    print("Completed ratio:", completed_ratio)
+    print("Refiner checkpoint info:", cfg_denoiser.p.refiner_checkpoint_info)
+
     refiner_switch_at = cfg_denoiser.p.refiner_switch_at
     refiner_checkpoint_info = cfg_denoiser.p.refiner_checkpoint_info
 
-    if refiner_switch_at is not None and completed_ratio < refiner_switch_at:
+    if refiner_switch_at is None or completed_ratio < refiner_switch_at:
         return False
 
     if refiner_checkpoint_info is None or shared.sd_model.sd_checkpoint_info == refiner_checkpoint_info:
         return False
 
-    if getattr(cfg_denoiser.p, "enable_hr", False):
-        is_second_pass = cfg_denoiser.p.is_hr_pass
-
-        if opts.hires_fix_refiner_pass == "first pass" and is_second_pass:
-            return False
-
-        if opts.hires_fix_refiner_pass == "second pass" and not is_second_pass:
-            return False
-
-        if opts.hires_fix_refiner_pass != "second pass":
-            cfg_denoiser.p.extra_generation_params['Hires refiner'] = opts.hires_fix_refiner_pass
+    print("Switching to refiner checkpoint")
+    cfg_denoiser.refiner_applied = True
+    cfg_denoiser.refiner_steps = cfg_denoiser.total_steps - cfg_denoiser.step
 
     cfg_denoiser.p.extra_generation_params['Refiner'] = refiner_checkpoint_info.short_title
     cfg_denoiser.p.extra_generation_params['Refiner switch at'] = refiner_switch_at
@@ -197,7 +198,13 @@ def apply_refiner(cfg_denoiser, x, sigma=None):
     cfg_denoiser.p.setup_conds()
     cfg_denoiser.update_inner_model()
 
-    sampling_prepare(sd_models.model_data.get_sd_model().forge_objects.unet, x=x)
+    if x.dim() == 1:
+        print("Warning: x is a 1D tensor. Creating a new 4D tensor filled with the value from x.")
+        new_x = torch.full((1, 4, 136, 112), x.item(), device=x.device, dtype=x.dtype)
+    else:
+        new_x = x
+
+    sampling_prepare(sd_models.model_data.get_sd_model().forge_objects.unet, x=new_x)
     return True
 
 
@@ -268,7 +275,15 @@ class Sampler:
         state.sampling_step = 0
 
         try:
-            return func()
+            # We can't directly access the arguments of the lambda function,
+            # so let's wrap it to print the shape of x when it's called
+            def wrapped_func():
+                result = func()
+                if isinstance(result, torch.Tensor):
+                    print("Shape of result from func in launch_sampling:", result.shape)
+                return result
+
+            return wrapped_func()
         except RecursionError:
             print(
                 'Encountered RecursionError during sampling, returning last latent. '

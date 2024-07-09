@@ -170,12 +170,22 @@ class CompVisSampler(sd_samplers_common.Sampler):
             'cond_scale': p.cfg_scale,
             's_min_uncond': self.s_min_uncond
         }
-        samples = self.launch_sampling(steps, lambda: self.func(self.model_wrap_cfg, x, extra_args=self.sampler_extra_args, disable=False, callback=self.callback_state, **extra_params_kwargs))
+
+        refiner_steps = getattr(self.model_wrap_cfg, 'refiner_steps', 0)
+        initial_steps = steps - refiner_steps
+
+        def sampling_loop():
+            result = self.func(self.model_wrap_cfg, x, extra_args=self.sampler_extra_args, disable=False, callback=self.callback_state, **extra_params_kwargs)
+            if refiner_steps > 0:
+                self.model_wrap_cfg.step = initial_steps
+                self.model_wrap_cfg.refiner_applied = False
+                result = self.func(self.model_wrap_cfg, result, extra_args=self.sampler_extra_args, disable=False, callback=self.callback_state, **extra_params_kwargs)
+            return result
+
+        samples = self.launch_sampling(steps, sampling_loop)
 
         self.add_infotext(p)
-
         sampling_cleanup(unet_patcher)
-
         return samples
 
 

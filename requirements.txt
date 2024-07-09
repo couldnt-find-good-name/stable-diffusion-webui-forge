@@ -18,7 +18,6 @@ omegaconf
 open-clip-torch
 
 piexif
-protobuf==3.20.0
 psutil
 pytorch_lightning
 requests
